@@ -1,0 +1,32 @@
+"""Tema sabitleri. Tüm UI bileşenleri buradan renk/font alır."""
+
+# Ana renkler (CustomTkinter dark theme uyumlu)
+COLOR_BG = "#1a1a1a"
+COLOR_BG_SECONDARY = "#2b2b2b"
+COLOR_ACCENT = "#1f6aa5"
+COLOR_ACCENT_HOVER = "#144870"
+COLOR_SUCCESS = "#2fa572"
+COLOR_ERROR = "#d32f2f"
+COLOR_WARNING = "#f57c00"
+COLOR_TEXT = "#ffffff"
+COLOR_TEXT_MUTED = "#888888"
+
+# Fontlar
+FONT_FAMILY = "Segoe UI"
+FONT_TITLE = (FONT_FAMILY, 18, "bold")
+FONT_SUBTITLE = (FONT_FAMILY, 14, "bold")
+FONT_BODY = (FONT_FAMILY, 12)
+FONT_SMALL = (FONT_FAMILY, 10)
+
+# Boyutlar
+WINDOW_DEFAULT_WIDTH = 900
+WINDOW_DEFAULT_HEIGHT = 680
+WINDOW_MIN_WIDTH = 700
+WINDOW_MIN_HEIGHT = 500
+
+PADDING_SMALL = 5
+PADDING_MEDIUM = 10
+PADDING_LARGE = 20
+
+# Köşe yuvarlaklığı
+CORNER_RADIUS = 8

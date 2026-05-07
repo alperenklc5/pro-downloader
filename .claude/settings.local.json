@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//usr/**)",
+      "Read(//usr/local/**)",
+      "Bash(python:*)",
+      "Bash(docker compose:*)",
+      "Bash(powershell.exe -Command \"docker --version\")",
+      "Bash(powershell.exe -Command \"docker compose version\")"
+    ]
+  }
+}
