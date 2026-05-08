@@ -14,7 +14,7 @@ services:
 
   api:
     build:
-      context: ../
+      context: .
       dockerfile: backend/Dockerfile
     restart: unless-stopped
     environment:
@@ -43,7 +43,7 @@ services:
 
   worker:
     build:
-      context: ../
+      context: .
       dockerfile: backend/Dockerfile
     restart: unless-stopped
     environment:
@@ -65,7 +65,7 @@ services:
 
   beat:
     build:
-      context: ../
+      context: .
       dockerfile: backend/Dockerfile
     restart: unless-stopped
     environment:
