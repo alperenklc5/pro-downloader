@@ -24,10 +24,10 @@ class TorrentResultsDialog(ctk.CTkToplevel):
         self.on_download = on_download
         self.jackett_url = jackett_url
         self.jackett_key = jackett_key
-        self._results: list[TorrentResult] = []
+        self._searching = False
 
         self.title("Torrent Alternatifleri")
-        self.geometry("600x500")
+        self.geometry("620x560")
         self.transient(master)
         self.grab_set()
 
@@ -35,70 +35,108 @@ class TorrentResultsDialog(ctk.CTkToplevel):
         self._search()
 
         self.update_idletasks()
-        x = master.winfo_x() + (master.winfo_width() - 600) // 2
-        y = master.winfo_y() + (master.winfo_height() - 500) // 2
+        x = master.winfo_x() + (master.winfo_width() - 620) // 2
+        y = master.winfo_y() + (master.winfo_height() - 560) // 2
         self.geometry(f"+{x}+{y}")
 
     def _build(self) -> None:
         # Başlık
         header = ctk.CTkFrame(self, fg_color="transparent")
-        header.pack(fill="x", padx=20, pady=(20, 10))
-
+        header.pack(fill="x", padx=20, pady=(20, 6))
         ctk.CTkLabel(
             header,
             text="Torrent Alternatifleri",
             font=theme.FONT_SUBTITLE,
         ).pack(side="left")
 
-        # İçerik bilgisi
-        info_text = self.content_info.name
-        if self.content_info.year:
-            info_text += f" ({self.content_info.year})"
+        # Uyarı
         ctk.CTkLabel(
             self,
-            text=f"Aranan: {info_text}",
-            font=theme.FONT_BODY,
-            text_color=theme.COLOR_TEXT_MUTED,
-        ).pack(anchor="w", padx=20, pady=(0, 5))
-
-        ctk.CTkLabel(
-            self,
-            text=(
-                "Bu içerik doğrudan indirilemedi.\n"
-                "Aşağıdaki torrent alternatifleri bulundu:"
-            ),
+            text="Bu içerik doğrudan indirilemedi. Torrent alternatifleri aranıyor.",
             font=theme.FONT_SMALL,
             text_color=theme.COLOR_WARNING,
             justify="left",
         ).pack(anchor="w", padx=20, pady=(0, 10))
 
-        # Loading
-        self.loading_label = ctk.CTkLabel(
-            self, text="Aranıyor...", font=theme.FONT_BODY
-        )
-        self.loading_label.pack(pady=20)
+        # Arama kutusu
+        search_frame = ctk.CTkFrame(self, fg_color=theme.COLOR_BG_SECONDARY, corner_radius=theme.CORNER_RADIUS)
+        search_frame.pack(fill="x", padx=20, pady=(0, 10))
+        search_frame.columnconfigure(0, weight=1)
 
-        self.progress_bar = ctk.CTkProgressBar(self, mode="indeterminate")
-        self.progress_bar.pack(padx=20, fill="x")
+        ctk.CTkLabel(
+            search_frame,
+            text="Arama:",
+            font=theme.FONT_SMALL,
+            text_color=theme.COLOR_TEXT_MUTED,
+        ).grid(row=0, column=0, columnspan=2, sticky="w", padx=10, pady=(8, 2))
+
+        self._query_var = ctk.StringVar(value=self.content_info.name)
+        self._search_entry = ctk.CTkEntry(
+            search_frame,
+            textvariable=self._query_var,
+            font=theme.FONT_BODY,
+            placeholder_text="Film veya dizi adı girin...",
+        )
+        self._search_entry.grid(row=1, column=0, sticky="ew", padx=(10, 6), pady=(0, 10))
+        self._search_entry.bind("<Return>", lambda _: self._on_search())
+
+        self._search_btn = ctk.CTkButton(
+            search_frame,
+            text="Yeniden Ara",
+            width=110,
+            font=theme.FONT_BODY,
+            fg_color=theme.COLOR_ACCENT,
+            hover_color=theme.COLOR_ACCENT_HOVER,
+            command=self._on_search,
+        )
+        self._search_btn.grid(row=1, column=1, sticky="e", padx=(0, 10), pady=(0, 10))
+
+        # Durum / yükleme alanı
+        self._status_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self._status_frame.pack(fill="x", padx=20)
+
+        self.loading_label = ctk.CTkLabel(
+            self._status_frame, text="Aranıyor...", font=theme.FONT_BODY
+        )
+        self.loading_label.pack(pady=(10, 4))
+
+        self.progress_bar = ctk.CTkProgressBar(self._status_frame, mode="indeterminate")
+        self.progress_bar.pack(fill="x", pady=(0, 10))
         self.progress_bar.start()
 
-        # Sonuç listesi (başta gizli)
+        # Sonuç listesi
         self.results_frame = ctk.CTkScrollableFrame(self, label_text="Sonuçlar")
 
-        # Butonlar
+        # Alt buton
         btn_frame = ctk.CTkFrame(self, fg_color="transparent")
-        btn_frame.pack(fill="x", padx=20, pady=(10, 20), side="bottom")
+        btn_frame.pack(fill="x", padx=20, pady=(8, 16), side="bottom")
         ctk.CTkButton(btn_frame, text="Kapat", command=self.destroy).pack(side="right")
 
-    def _search(self) -> None:
+    def _on_search(self) -> None:
+        """Yeniden Ara butonuna basıldı."""
+        if self._searching:
+            return
+        query = self._query_var.get().strip()
+        if not query:
+            return
+        self._clear_results()
+        self._show_loading()
+        self._search(query=query)
+
+    def _search(self, query: str | None = None) -> None:
         """Background'da torrent ara."""
+        self._searching = True
+        self._search_btn.configure(state="disabled")
+
+        effective_query = query or self.content_info.name
+
         def task():
             results = search_all(
-                query=self.content_info.name,
-                year=self.content_info.year,
-                season=self.content_info.season,
-                episode=self.content_info.episode,
-                content_type=self.content_info.content_type,
+                query=effective_query,
+                year=self.content_info.year if query is None else None,
+                season=self.content_info.season if query is None else None,
+                episode=self.content_info.episode if query is None else None,
+                content_type=self.content_info.content_type if query is None else "unknown",
                 jackett_url=self.jackett_url,
                 jackett_key=self.jackett_key,
             )
@@ -106,23 +144,45 @@ class TorrentResultsDialog(ctk.CTkToplevel):
 
         threading.Thread(target=task, daemon=True).start()
 
+    def _show_loading(self) -> None:
+        """Yükleme göstergesini göster."""
+        self.loading_label = ctk.CTkLabel(
+            self._status_frame, text="Aranıyor...", font=theme.FONT_BODY
+        )
+        self.loading_label.pack(pady=(10, 4))
+        self.progress_bar = ctk.CTkProgressBar(self._status_frame, mode="indeterminate")
+        self.progress_bar.pack(fill="x", pady=(0, 10))
+        self.progress_bar.start()
+
+    def _clear_results(self) -> None:
+        """Önceki sonuçları ve yükleme göstergesini temizle."""
+        # Yükleme widget'larını kaldır
+        for w in self._status_frame.winfo_children():
+            w.destroy()
+        # Sonuç listesini temizle
+        self.results_frame.pack_forget()
+        for w in self.results_frame.winfo_children():
+            w.destroy()
+
     def _show_results(self, results: list[TorrentResult]) -> None:
         """Sonuçları göster."""
-        self.loading_label.destroy()
-        self.progress_bar.stop()
-        self.progress_bar.destroy()
+        self._searching = False
+        self._search_btn.configure(state="normal")
+
+        # Yükleme widget'larını kaldır
+        for w in self._status_frame.winfo_children():
+            w.destroy()
 
         if not results:
             ctk.CTkLabel(
-                self,
-                text="Torrent bulunamadı.\nFarklı bir arama terimi deneyin.",
+                self._status_frame,
+                text="Torrent bulunamadı. Farklı bir arama terimi deneyin.",
                 font=theme.FONT_BODY,
                 text_color=theme.COLOR_ERROR,
-            ).pack(pady=20)
+            ).pack(pady=16)
             return
 
-        self.results_frame.pack(fill="both", expand=True, padx=20, pady=(0, 10))
-
+        self.results_frame.pack(fill="both", expand=True, padx=20, pady=(0, 8))
         for result in results:
             self._add_result_row(result)
 
@@ -138,17 +198,16 @@ class TorrentResultsDialog(ctk.CTkToplevel):
         info = ctk.CTkFrame(row, fg_color="transparent")
         info.pack(side="left", fill="x", expand=True, padx=10, pady=8)
 
-        title_short = result.title[:50] + "..." if len(result.title) > 50 else result.title
+        title_short = result.title[:52] + "..." if len(result.title) > 52 else result.title
         ctk.CTkLabel(
             info, text=title_short,
             font=theme.FONT_BODY,
             anchor="w",
         ).pack(anchor="w")
 
-        seed_color = theme.COLOR_SUCCESS if result.seeds > 0 else theme.COLOR_ERROR
         meta_parts = [
-            f"{result.quality}",
-            f"{result.size_formatted()}",
+            result.quality,
+            result.size_formatted(),
             f"{result.seeds} seed",
             f"[{result.source}]",
         ]
@@ -156,7 +215,7 @@ class TorrentResultsDialog(ctk.CTkToplevel):
             info,
             text="  |  ".join(meta_parts),
             font=theme.FONT_SMALL,
-            text_color=seed_color if result.seeds > 0 else theme.COLOR_TEXT_MUTED,
+            text_color=theme.COLOR_SUCCESS if result.seeds > 0 else theme.COLOR_TEXT_MUTED,
             anchor="w",
         ).pack(anchor="w")
 
