@@ -46,11 +46,11 @@ class App(ctk.CTk):
         super().__init__()
 
         self.config_obj = AppConfig.load()
-        # Jackett ve OpenSubtitles key'lerini environment'a yaz
-        # (subtitle.py dışında başka modüller os.getenv ile okuyabilir)
-        os.environ["JACKETT_URL"] = self.config_obj.jackett_url
-        os.environ["JACKETT_API_KEY"] = self.config_obj.jackett_api_key
-        os.environ["OPENSUBTITLES_API_KEY"] = self.config_obj.opensubtitles_api_key
+        os.environ["JACKETT_URL"] = self.config_obj.jackett_url or ""
+        os.environ["JACKETT_API_KEY"] = self.config_obj.jackett_api_key or ""
+        os.environ["OPENSUBTITLES_API_KEY"] = self.config_obj.opensubtitles_api_key or ""
+        print(f"DEBUG Jackett URL: {os.environ.get('JACKETT_URL')}")
+        print(f"DEBUG Jackett KEY: {os.environ.get('JACKETT_API_KEY')[:10] if os.environ.get('JACKETT_API_KEY') else 'BOŞ'}")
         ctk.set_appearance_mode(self.config_obj.theme_mode)
         ctk.set_default_color_theme("blue")
 
@@ -157,6 +157,13 @@ class App(ctk.CTk):
 
     def _on_fetch(self, url: str) -> None:
         """Kullanıcı 'Bilgi Al' butonuna bastı."""
+        # Düz metin (URL değil) → yt-dlp'ye göndermeden direkt torrent araması
+        if url and not url.lower().startswith(("http://", "https://", "ftp://")):
+            from core.torrent.detector import ContentInfo
+            content_info = ContentInfo(name=url.strip(), original_url=url)
+            self._open_torrent_dialog(content_info)
+            return
+
         if not self._check_cookie_cache():
             return
         self._hide_error()
@@ -200,23 +207,35 @@ class App(ctk.CTk):
         self._show_error(friendly.title + ": " + friendly.message)
         logger.warning("Bilgi çekme hatası: %s", exc)
 
-        # URL'den içerik adı çıkar — torrent alternatifi öner
+        # Düz metin girişi (URL değil) → direkt torrent araması
+        is_plain_text = url and not url.lower().startswith(("http://", "https://", "ftp://"))
+        if is_plain_text:
+            from core.torrent.detector import ContentInfo
+            content_info = ContentInfo(name=url.strip(), original_url=url)
+            self._open_torrent_dialog(content_info)
+            return
+
+        # URL girişi — her hata türünde detect_from_url ile içerik adı çıkar
         if url:
             content_info = detect_from_url(url)
             if content_info.name:
-                def on_torrent_download(result: TorrentResult) -> None:
-                    self._start_torrent_download(result, content_info)
-
-                TorrentResultsDialog(
-                    self,
-                    content_info=content_info,
-                    on_download=on_torrent_download,
-                    jackett_url=self.config_obj.jackett_url,
-                    jackett_key=self.config_obj.jackett_api_key,
-                )
+                self._open_torrent_dialog(content_info)
                 return
 
         ErrorDialog(self, friendly, on_open_settings=self._open_cookies_settings)
+
+    def _open_torrent_dialog(self, content_info: ContentInfo) -> None:
+        """Torrent arama dialog'unu aç."""
+        def on_torrent_download(result: TorrentResult) -> None:
+            self._start_torrent_download(result, content_info)
+
+        TorrentResultsDialog(
+            self,
+            content_info=content_info,
+            on_download=on_torrent_download,
+            jackett_url=self.config_obj.jackett_url,
+            jackett_key=self.config_obj.jackett_api_key,
+        )
 
     def _start_torrent_download(
         self,
