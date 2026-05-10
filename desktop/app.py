@@ -7,6 +7,7 @@ Tüm UI bileşenlerini birleştirir ve uygulama state'ini yönetir.
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import tkinter.messagebox as msgbox
 from pathlib import Path
@@ -45,6 +46,11 @@ class App(ctk.CTk):
         super().__init__()
 
         self.config_obj = AppConfig.load()
+        # Jackett ve OpenSubtitles key'lerini environment'a yaz
+        # (subtitle.py dışında başka modüller os.getenv ile okuyabilir)
+        os.environ["JACKETT_URL"] = self.config_obj.jackett_url
+        os.environ["JACKETT_API_KEY"] = self.config_obj.jackett_api_key
+        os.environ["OPENSUBTITLES_API_KEY"] = self.config_obj.opensubtitles_api_key
         ctk.set_appearance_mode(self.config_obj.theme_mode)
         ctk.set_default_color_theme("blue")
 
@@ -205,6 +211,8 @@ class App(ctk.CTk):
                     self,
                     content_info=content_info,
                     on_download=on_torrent_download,
+                    jackett_url=self.config_obj.jackett_url,
+                    jackett_key=self.config_obj.jackett_api_key,
                 )
                 return
 

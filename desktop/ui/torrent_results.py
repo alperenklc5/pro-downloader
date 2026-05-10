@@ -16,10 +16,14 @@ class TorrentResultsDialog(ctk.CTkToplevel):
         master,
         content_info: ContentInfo,
         on_download: Callable[[TorrentResult], None],
+        jackett_url: str = "",
+        jackett_key: str = "",
     ):
         super().__init__(master)
         self.content_info = content_info
         self.on_download = on_download
+        self.jackett_url = jackett_url
+        self.jackett_key = jackett_key
         self._results: list[TorrentResult] = []
 
         self.title("Torrent Alternatifleri")
@@ -95,6 +99,8 @@ class TorrentResultsDialog(ctk.CTkToplevel):
                 season=self.content_info.season,
                 episode=self.content_info.episode,
                 content_type=self.content_info.content_type,
+                jackett_url=self.jackett_url,
+                jackett_key=self.jackett_key,
             )
             self.after(0, lambda: self._show_results(results))
 

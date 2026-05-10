@@ -189,61 +189,101 @@ class SettingsWindow(ctk.CTkToplevel):
 
     def _build_torrent_tab(self, parent: ctk.CTkFrame) -> None:
         pad = theme.PADDING_MEDIUM
+        scroll = ctk.CTkScrollableFrame(parent, corner_radius=0, fg_color="transparent")
+        scroll.pack(fill="both", expand=True)
+
+        # --- Jackett bölümü ---
+        ctk.CTkLabel(
+            scroll,
+            text="Jackett Ayarları",
+            font=theme.FONT_SUBTITLE,
+            anchor="w",
+        ).pack(anchor="w", padx=pad, pady=(pad, 5))
 
         ctk.CTkLabel(
-            parent,
+            scroll,
             text=(
-                "Torrent indirme ve otomatik altyazı için API anahtarlarını girin.\n"
-                "Bu anahtarlar yalnızca sizin cihazınızdaki config dosyasına kaydedilir."
+                "Jackett, BTK engelini aşarak 500+ torrent sitesini sorgular.\n"
+                "VPS'te çalışır; URL ve API key'i buraya girin."
             ),
             font=theme.FONT_SMALL,
             text_color=theme.COLOR_TEXT_MUTED,
             justify="left",
-        ).pack(anchor="w", padx=pad, pady=(pad, theme.PADDING_LARGE))
+        ).pack(anchor="w", padx=pad, pady=(0, 8))
 
-        # OpenSubtitles
-        ctk.CTkLabel(
-            parent,
-            text="OpenSubtitles API Key:",
+        ctk.CTkLabel(scroll, text="Jackett URL:", font=theme.FONT_BODY, anchor="w").pack(
+            anchor="w", padx=pad, pady=(0, 2)
+        )
+        self._jackett_url_var = ctk.StringVar(value=self.config.jackett_url)
+        ctk.CTkEntry(
+            scroll,
+            textvariable=self._jackett_url_var,
+            placeholder_text="http://your-vps:9117",
             font=theme.FONT_BODY,
+        ).pack(fill="x", padx=pad, pady=(0, 8))
+
+        ctk.CTkLabel(scroll, text="Jackett API Key:", font=theme.FONT_BODY, anchor="w").pack(
+            anchor="w", padx=pad, pady=(0, 2)
+        )
+        self._jackett_key_var = ctk.StringVar(value=self.config.jackett_api_key)
+        ctk.CTkEntry(
+            scroll,
+            textvariable=self._jackett_key_var,
+            placeholder_text="Jackett API key...",
+            font=theme.FONT_BODY,
+            show="*",
+        ).pack(fill="x", padx=pad, pady=(0, 4))
+
+        # Separator
+        ctk.CTkFrame(scroll, height=1, fg_color=theme.COLOR_TEXT_MUTED).pack(
+            fill="x", padx=pad, pady=12
+        )
+
+        # --- Altyazı bölümü ---
+        ctk.CTkLabel(
+            scroll,
+            text="Altyazı Ayarları",
+            font=theme.FONT_SUBTITLE,
             anchor="w",
-        ).pack(anchor="w", padx=pad, pady=(0, 2))
+        ).pack(anchor="w", padx=pad, pady=(0, 5))
+
+        ctk.CTkLabel(scroll, text="OpenSubtitles API Key:", font=theme.FONT_BODY, anchor="w").pack(
+            anchor="w", padx=pad, pady=(0, 2)
+        )
         self._os_key_var = ctk.StringVar(value=self.config.opensubtitles_api_key)
         ctk.CTkEntry(
-            parent,
+            scroll,
             textvariable=self._os_key_var,
-            placeholder_text="API Key girin...",
+            placeholder_text="OpenSubtitles API key...",
             font=theme.FONT_BODY,
             show="*",
         ).pack(fill="x", padx=pad, pady=(0, 4))
+
         ctk.CTkLabel(
-            parent,
-            text="opensubtitles.com/en/consumers adresinden ücretsiz alabilirsiniz.",
+            scroll,
+            text="opensubtitles.com/en/consumers adresinden ucretsiz alabilirsiniz.",
             font=theme.FONT_SMALL,
             text_color=theme.COLOR_TEXT_MUTED,
         ).pack(anchor="w", padx=pad, pady=(0, theme.PADDING_LARGE))
 
-        # TMDB
-        ctk.CTkLabel(
-            parent,
-            text="TMDB API Key:",
-            font=theme.FONT_BODY,
-            anchor="w",
-        ).pack(anchor="w", padx=pad, pady=(0, 2))
+        # TMDB (ileride kullanım için)
+        ctk.CTkLabel(scroll, text="TMDB API Key:", font=theme.FONT_BODY, anchor="w").pack(
+            anchor="w", padx=pad, pady=(0, 2)
+        )
         self._tmdb_key_var = ctk.StringVar(value=self.config.tmdb_api_key)
         ctk.CTkEntry(
-            parent,
+            scroll,
             textvariable=self._tmdb_key_var,
-            placeholder_text="API Key girin...",
+            placeholder_text="TMDB API key...",
             font=theme.FONT_BODY,
             show="*",
         ).pack(fill="x", padx=pad, pady=(0, 4))
         ctk.CTkLabel(
-            parent,
-            text="themoviedb.org/settings/api adresinden ücretsiz alabilirsiniz.",
+            scroll,
+            text="themoviedb.org/settings/api adresinden ucretsiz alabilirsiniz.",
             font=theme.FONT_SMALL,
             text_color=theme.COLOR_TEXT_MUTED,
-        ).pack(anchor="w", padx=pad, pady=(0, theme.PADDING_LARGE))
+        ).pack(anchor="w", padx=pad, pady=(0, pad))
 
     # ------------------------------------------------------------------
     # Cookies & Login sekmesi
@@ -597,6 +637,8 @@ class SettingsWindow(ctk.CTkToplevel):
 
         self.config.opensubtitles_api_key = self._os_key_var.get().strip()
         self.config.tmdb_api_key = self._tmdb_key_var.get().strip()
+        self.config.jackett_url = self._jackett_url_var.get().strip()
+        self.config.jackett_api_key = self._jackett_key_var.get().strip()
 
         self.config.save()
         self.on_save(self.config)
