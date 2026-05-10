@@ -17,10 +17,15 @@ from core import DownloadOptions, ProgressInfo, VideoInfo
 from core.cookie_cache import get_metadata, is_cache_valid, sync_from_browser
 from core.error_messages import clean_ansi, humanize_error
 from core.exceptions import AuthenticationRequiredError, CookieError
+from core.torrent import (
+    detect_from_url, ContentInfo, TorrentResult,
+    TorrentDownloader, TorrentProgress, auto_subtitle,
+)
 from desktop.config import AppConfig
 from desktop.ui import theme
 from desktop.ui.error_dialog import ErrorDialog
 from desktop.ui.download_item import DownloadItem
+from desktop.ui.torrent_results import TorrentResultsDialog
 from desktop.ui.download_list import DownloadList
 from desktop.ui.format_picker import FormatPickerFrame
 from desktop.ui.settings_window import SettingsWindow
@@ -167,7 +172,7 @@ class App(ctk.CTk):
             if isinstance(exc, AuthenticationRequiredError):
                 run_on_ui(self, self._on_auth_required, exc)
             else:
-                run_on_ui(self, self._on_extract_error, exc, generation)
+                run_on_ui(self, self._on_extract_error, exc, generation, url)
 
         ExtractWorker(url, on_success=on_success, on_error=on_error, cookies=cookie_config).start()
 
@@ -180,15 +185,88 @@ class App(ctk.CTk):
         self._show_video_info(info)
         self.format_picker.set_enabled(True)
 
-    def _on_extract_error(self, exc: Exception, generation: int) -> None:
+    def _on_extract_error(self, exc: Exception, generation: int, url: str = "") -> None:
         if generation != self._extract_generation:
             return
 
         self.url_input.set_loading(False)
         friendly = humanize_error(str(exc))
         self._show_error(friendly.title + ": " + friendly.message)
-        ErrorDialog(self, friendly, on_open_settings=self._open_cookies_settings)
         logger.warning("Bilgi çekme hatası: %s", exc)
+
+        # URL'den içerik adı çıkar — torrent alternatifi öner
+        if url:
+            content_info = detect_from_url(url)
+            if content_info.name:
+                def on_torrent_download(result: TorrentResult) -> None:
+                    self._start_torrent_download(result, content_info)
+
+                TorrentResultsDialog(
+                    self,
+                    content_info=content_info,
+                    on_download=on_torrent_download,
+                )
+                return
+
+        ErrorDialog(self, friendly, on_open_settings=self._open_cookies_settings)
+
+    def _start_torrent_download(
+        self,
+        result: TorrentResult,
+        content_info: ContentInfo,
+    ) -> None:
+        """Torrent indirme başlat."""
+        output_dir = Path(self.config_obj.download_dir) / "torrents"
+        downloader = TorrentDownloader(output_dir)
+
+        item = DownloadItem(
+            self.download_list,
+            title=f"[Torrent] {result.title} {result.quality}",
+            on_cancel=downloader.cancel,
+        )
+        self.download_list.add_item(item)
+
+        api_key = self.config_obj.opensubtitles_api_key
+
+        def on_progress(progress: TorrentProgress) -> None:
+            run_on_ui(self, item.update_torrent_progress, progress)
+
+        def task() -> None:
+            try:
+                magnet = result.magnet or ""
+                torrent_url = result.torrent_url or ""
+
+                if magnet:
+                    video_path = downloader.download_magnet(magnet, on_progress)
+                elif torrent_url:
+                    video_path = downloader.download_torrent_file(torrent_url, on_progress)
+                else:
+                    raise Exception("Magnet veya torrent URL bulunamadı")
+
+                if video_path is None:
+                    raise Exception("İndirme başarısız veya iptal edildi")
+
+                run_on_ui(self, item.set_status_text, "Altyazı aranıyor...")
+                subtitles = auto_subtitle(
+                    title=content_info.name,
+                    video_path=video_path,
+                    api_key=api_key,
+                    year=content_info.year,
+                    imdb_id=result.imdb_id,
+                    languages=self.config_obj.subtitle_languages,
+                )
+
+                run_on_ui(self, item.mark_complete, video_path)
+
+                if subtitles:
+                    run_on_ui(
+                        self, item.set_status_text,
+                        f"Tamamlandi + {len(subtitles)} altyazi",
+                    )
+            except Exception as e:
+                run_on_ui(self, item.mark_error, e)
+
+        threading.Thread(target=task, daemon=True).start()
 
     def _on_auth_required(self, exc: Exception) -> None:
         """Login gerektiren video için özel yönlendirme dialog'u."""

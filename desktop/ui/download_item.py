@@ -8,6 +8,7 @@ from typing import Callable
 import customtkinter as ctk
 
 from core import ProgressInfo
+from core.torrent.downloader import TorrentProgress
 from desktop.ui import theme
 from desktop.utils import file_utils
 
@@ -118,6 +119,20 @@ class DownloadItem(ctk.CTkFrame):
             text=f"{info.percent:.1f}%  •  {speed_mb:.1f} MB/s  •  {eta_str} kaldı",
             text_color=theme.COLOR_TEXT_MUTED,
         )
+
+    def update_torrent_progress(self, progress: TorrentProgress) -> None:
+        """Torrent ilerleme çubuğunu ve durum metnini günceller."""
+        self.progress.set(progress.progress_percent / 100)
+        eta_str = f"{progress.eta_seconds}s" if progress.eta_seconds is not None else "?"
+        seed_info = f"{progress.seeds} seed  {progress.peers} peer"
+        self.status_label.configure(
+            text=f"{progress.progress_percent:.1f}%  •  {progress.speed_formatted()}  •  {eta_str} kaldi  •  {seed_info}",
+            text_color=theme.COLOR_TEXT_MUTED,
+        )
+
+    def set_status_text(self, text: str) -> None:
+        """Durum metnini doğrudan günceller."""
+        self.status_label.configure(text=text)
 
     def mark_complete(self, path: Path) -> None:
         """Tamamlandı durumuna geçer; 'Aç' ve 'Klasörde Göster' butonlarını ekler."""

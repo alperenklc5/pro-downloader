@@ -59,10 +59,12 @@ class SettingsWindow(ctk.CTkToplevel):
         self.tabs.add("Genel")
         self.tabs.add("İndirme")
         self.tabs.add("Cookies & Login")
+        self.tabs.add("Torrent & Altyazı")
 
         self._build_general_tab(self.tabs.tab("Genel"))
         self._build_download_tab(self.tabs.tab("İndirme"))
         self._build_cookies_tab(self.tabs.tab("Cookies & Login"))
+        self._build_torrent_tab(self.tabs.tab("Torrent & Altyazı"))
 
         if focus_tab:
             try:
@@ -180,6 +182,68 @@ class SettingsWindow(ctk.CTkToplevel):
             font=theme.FONT_BODY, width=140,
         ).grid(row=row, column=0, columnspan=2, sticky="w",
                padx=theme.PADDING_MEDIUM, pady=(0, theme.PADDING_MEDIUM)); row += 1
+
+    # ------------------------------------------------------------------
+    # Torrent & Altyazı sekmesi
+    # ------------------------------------------------------------------
+
+    def _build_torrent_tab(self, parent: ctk.CTkFrame) -> None:
+        pad = theme.PADDING_MEDIUM
+
+        ctk.CTkLabel(
+            parent,
+            text=(
+                "Torrent indirme ve otomatik altyazı için API anahtarlarını girin.\n"
+                "Bu anahtarlar yalnızca sizin cihazınızdaki config dosyasına kaydedilir."
+            ),
+            font=theme.FONT_SMALL,
+            text_color=theme.COLOR_TEXT_MUTED,
+            justify="left",
+        ).pack(anchor="w", padx=pad, pady=(pad, theme.PADDING_LARGE))
+
+        # OpenSubtitles
+        ctk.CTkLabel(
+            parent,
+            text="OpenSubtitles API Key:",
+            font=theme.FONT_BODY,
+            anchor="w",
+        ).pack(anchor="w", padx=pad, pady=(0, 2))
+        self._os_key_var = ctk.StringVar(value=self.config.opensubtitles_api_key)
+        ctk.CTkEntry(
+            parent,
+            textvariable=self._os_key_var,
+            placeholder_text="API Key girin...",
+            font=theme.FONT_BODY,
+            show="*",
+        ).pack(fill="x", padx=pad, pady=(0, 4))
+        ctk.CTkLabel(
+            parent,
+            text="opensubtitles.com/en/consumers adresinden ücretsiz alabilirsiniz.",
+            font=theme.FONT_SMALL,
+            text_color=theme.COLOR_TEXT_MUTED,
+        ).pack(anchor="w", padx=pad, pady=(0, theme.PADDING_LARGE))
+
+        # TMDB
+        ctk.CTkLabel(
+            parent,
+            text="TMDB API Key:",
+            font=theme.FONT_BODY,
+            anchor="w",
+        ).pack(anchor="w", padx=pad, pady=(0, 2))
+        self._tmdb_key_var = ctk.StringVar(value=self.config.tmdb_api_key)
+        ctk.CTkEntry(
+            parent,
+            textvariable=self._tmdb_key_var,
+            placeholder_text="API Key girin...",
+            font=theme.FONT_BODY,
+            show="*",
+        ).pack(fill="x", padx=pad, pady=(0, 4))
+        ctk.CTkLabel(
+            parent,
+            text="themoviedb.org/settings/api adresinden ücretsiz alabilirsiniz.",
+            font=theme.FONT_SMALL,
+            text_color=theme.COLOR_TEXT_MUTED,
+        ).pack(anchor="w", padx=pad, pady=(0, theme.PADDING_LARGE))
 
     # ------------------------------------------------------------------
     # Cookies & Login sekmesi
@@ -530,6 +594,9 @@ class SettingsWindow(ctk.CTkToplevel):
             self.config.cookies_browser = None
             self.config.cookies_browser_profile = None
             self.config.cookies_file_path = None
+
+        self.config.opensubtitles_api_key = self._os_key_var.get().strip()
+        self.config.tmdb_api_key = self._tmdb_key_var.get().strip()
 
         self.config.save()
         self.on_save(self.config)
