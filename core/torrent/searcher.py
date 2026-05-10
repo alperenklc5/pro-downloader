@@ -116,7 +116,7 @@ def search_movies(
     items = _jackett_search(search_query, CATEGORY_MOVIES, jackett_url, jackett_key)
     results = [_parse_result(item, "movie") for item in items]
     results = [r for r in results if r.seeds > 0]
-    return sorted(results, key=lambda r: r.seeds, reverse=True)[:20]
+    return sorted(results, key=lambda r: r.seeds, reverse=True)[:100]
 
 
 def search_series(
@@ -136,7 +136,7 @@ def search_series(
     items = _jackett_search(search_query, CATEGORY_TV, jackett_url, jackett_key)
     results = [_parse_result(item, "series") for item in items]
     results = [r for r in results if r.seeds > 0]
-    return sorted(results, key=lambda r: r.seeds, reverse=True)[:20]
+    return sorted(results, key=lambda r: r.seeds, reverse=True)[:100]
 
 
 def search_all(
@@ -172,7 +172,7 @@ def search_all(
         results.append(_parse_result(item, cat))
 
     results = [r for r in results if r.seeds > 0]
-    return sorted(results, key=lambda r: r.seeds, reverse=True)[:20]
+    return sorted(results, key=lambda r: r.seeds, reverse=True)[:100]
 
 
 def _detect_quality(title: str) -> str:
