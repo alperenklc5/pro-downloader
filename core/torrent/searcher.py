@@ -68,7 +68,7 @@ def _jackett_search(
         return []
 
 
-def _parse_result(item: dict, category: str = "unknown") -> TorrentResult:
+def _parse_result(item: dict) -> TorrentResult:
     """Jackett sonucunu TorrentResult'a çevir."""
     title = item.get("Title", "")
     size = item.get("Size", 0) or 0
@@ -89,6 +89,16 @@ def _parse_result(item: dict, category: str = "unknown") -> TorrentResult:
             year = int(pub_date[:4])
         except (ValueError, TypeError):
             pass
+
+    # Category: Jackett bazen int, bazen list[int] döndürür — normalize et
+    raw_cat = item.get("Category", [])
+    if isinstance(raw_cat, int):
+        item_cats = [raw_cat]
+    elif isinstance(raw_cat, list):
+        item_cats = raw_cat
+    else:
+        item_cats = []
+    category = "movie" if any(c in CATEGORY_MOVIES for c in item_cats) else "series"
 
     return TorrentResult(
         title=title,
@@ -114,7 +124,7 @@ def search_movies(
     """Film torrenti ara."""
     search_query = f"{query} {year}" if year else query
     items = _jackett_search(search_query, CATEGORY_MOVIES, jackett_url, jackett_key)
-    results = [_parse_result(item, "movie") for item in items]
+    results = [_parse_result(item) for item in items]
     results = [r for r in results if r.seeds > 0]
     return sorted(results, key=lambda r: r.seeds, reverse=True)[:100]
 
@@ -134,7 +144,7 @@ def search_series(
         search_query += f" Season {season}"
 
     items = _jackett_search(search_query, CATEGORY_TV, jackett_url, jackett_key)
-    results = [_parse_result(item, "series") for item in items]
+    results = [_parse_result(item) for item in items]
     results = [r for r in results if r.seeds > 0]
     return sorted(results, key=lambda r: r.seeds, reverse=True)[:100]
 
@@ -164,13 +174,7 @@ def search_all(
         search_query = f"{query} {year}" if year else query
 
     items = _jackett_search(search_query, categories, jackett_url, jackett_key)
-
-    results = []
-    for item in items:
-        item_cats = item.get("Category") or []
-        cat = "movie" if any(c in CATEGORY_MOVIES for c in item_cats) else "series"
-        results.append(_parse_result(item, cat))
-
+    results = [_parse_result(item) for item in items]
     results = [r for r in results if r.seeds > 0]
     return sorted(results, key=lambda r: r.seeds, reverse=True)[:100]
 
