@@ -6,6 +6,7 @@ API key AppConfig üzerinden yönetilir; fonksiyonlara parametre olarak geçilir
 """
 from __future__ import annotations
 
+import os
 import requests
 from dataclasses import dataclass
 
@@ -41,13 +42,23 @@ class TorrentResult:
         return f"{mb:.0f} MB"
 
 
+def _get_jackett_config() -> tuple[str, str]:
+    """Environment'tan Jackett URL ve API key'i oku."""
+    url = os.getenv("JACKETT_URL", "")
+    key = os.getenv("JACKETT_API_KEY", "")
+    return url, key
+
+
 def _jackett_search(
     query: str,
     categories: list[int],
-    jackett_url: str,
-    jackett_key: str,
+    jackett_url: str | None = None,
+    jackett_key: str | None = None,
 ) -> list[dict]:
     """Jackett API'ye ham sorgu at."""
+    if not jackett_url or not jackett_key:
+        jackett_url, jackett_key = _get_jackett_config()
+
     if not jackett_url or not jackett_key:
         return []
 
@@ -118,8 +129,8 @@ def _parse_result(item: dict) -> TorrentResult:
 def search_movies(
     query: str,
     year: int | None = None,
-    jackett_url: str = "",
-    jackett_key: str = "",
+    jackett_url: str | None = None,
+    jackett_key: str | None = None,
 ) -> list[TorrentResult]:
     """Film torrenti ara."""
     search_query = f"{query} {year}" if year else query
@@ -133,8 +144,8 @@ def search_series(
     query: str,
     season: int | None = None,
     episode: int | None = None,
-    jackett_url: str = "",
-    jackett_key: str = "",
+    jackett_url: str | None = None,
+    jackett_key: str | None = None,
 ) -> list[TorrentResult]:
     """Dizi torrenti ara."""
     search_query = query
@@ -155,8 +166,8 @@ def search_all(
     season: int | None = None,
     episode: int | None = None,
     content_type: str = "unknown",
-    jackett_url: str = "",
-    jackett_key: str = "",
+    jackett_url: str | None = None,
+    jackett_key: str | None = None,
 ) -> list[TorrentResult]:
     """Film ve/veya dizi ara."""
     if content_type == "movie":
