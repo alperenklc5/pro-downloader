@@ -19,3 +19,7 @@ core/test_detect_browsers.py
 
 # Local config
 *.local.json
+
+tests/
+docs/
+cli_test.py
