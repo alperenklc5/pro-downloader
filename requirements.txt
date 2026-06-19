@@ -1,4 +1,31 @@
+# Video indirme
 yt-dlp>=2024.1.0
+
+# Desktop UI
 customtkinter>=5.2.0
 Pillow>=10.0.0
+
+# HTTP istekleri
 requests>=2.31.0
+
+# Torrent (libtorrent pip ile kurulmuyor, manuel kurulum gerekiyor)
+# Windows: https://github.com/arvidn/libtorrent/releases
+# pip install libtorrent-2.x.x-cp312-cp312-win_amd64.whl
+
+# Altyazı - Subdl zip desteği için (stdlib, ekstra paket gerekmez)
+# zipfile, io — Python stdlib
+
+# Mega.nz (megatools CLI ayrıca kurulmalı)
+# https://xff.cz/megatools/
+
+# Backend (VPS) bağımlılıkları
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+celery>=5.3.0
+redis>=5.0.0
+pydantic>=2.0.0
+python-multipart>=0.0.6
+httpx>=0.26.0
+
+# Proxy desteği
+pysocks>=1.7.1
