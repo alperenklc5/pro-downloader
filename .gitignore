@@ -9,3 +9,13 @@ downloads/
 .pytest_cache/
 .vscode/
 .idea/
+
+# Claude Code
+.claude/
+
+# Test dosyalarý
+cli_test.py
+core/test_detect_browsers.py
+
+# Local config
+*.local.json
