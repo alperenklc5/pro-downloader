@@ -8,6 +8,7 @@ from typing import Callable
 import customtkinter as ctk
 
 from core import ProgressInfo
+from core.torrent.downloader import TorrentProgress
 from desktop.ui import theme
 from desktop.utils import file_utils
 
@@ -24,13 +25,10 @@ class DownloadItem(ctk.CTkFrame):
         master: ctk.CTkBaseClass,
         title: str,
         on_cancel: Callable[[], None],
+        on_subtitle=None,
+        on_pause=None,
+        on_resume=None,
     ) -> None:
-        """
-        Args:
-            master: Üst widget.
-            title: Video başlığı.
-            on_cancel: İptal butonuna basılınca çağrılır.
-        """
         super().__init__(
             master,
             corner_radius=theme.CORNER_RADIUS,
@@ -38,6 +36,12 @@ class DownloadItem(ctk.CTkFrame):
         )
         self.title = title
         self.on_cancel = on_cancel
+        self._on_subtitle = on_subtitle
+        self._on_pause = on_pause
+        self._on_resume = on_resume
+        self._is_paused = False
+        self._error_flag = False
+        self._video_path: Path | None = None
         self.completed_path: Path | None = None
         self._build()
 
@@ -94,6 +98,20 @@ class DownloadItem(ctk.CTkFrame):
             pady=theme.PADDING_MEDIUM,
         )
 
+        # Pause butonu (yalnızca torrent indirmelerde kullanılır)
+        self._pause_btn = ctk.CTkButton(
+            self.action_frame,
+            text="⏸ Duraklat",
+            width=90,
+            height=32,
+            fg_color="#1565c0",
+            hover_color="#0d47a1",
+            font=theme.FONT_SMALL,
+            command=self._toggle_pause,
+        )
+        # Başta gizli; update_torrent_progress ilk çağrısında gösterilir
+        self._pause_btn_visible = False
+
         self.cancel_btn = ctk.CTkButton(
             self.action_frame,
             text="İptal",
@@ -119,8 +137,45 @@ class DownloadItem(ctk.CTkFrame):
             text_color=theme.COLOR_TEXT_MUTED,
         )
 
+    def update_torrent_progress(self, progress: TorrentProgress) -> None:
+        """Torrent ilerleme çubuğunu ve durum metnini günceller."""
+        # Pause butonunu ilk torrent güncellemesinde göster
+        if not self._pause_btn_visible and (self._on_pause or self._on_resume):
+            self._pause_btn.pack(pady=(0, 4))
+            self._pause_btn_visible = True
+
+        self.progress.set(progress.progress_percent / 100)
+
+        if progress.status == "paused":
+            self.progress.configure(progress_color="#ff9800")
+            self._pause_btn.configure(text="▶ Devam")
+            status_text = f"⏸ Duraklatıldı — {progress.progress_percent:.1f}%"
+        elif progress.status == "downloading":
+            self.progress.configure(progress_color=theme.COLOR_ACCENT)
+            self._pause_btn.configure(text="⏸ Duraklat")
+            status_text = (
+                f"{progress.progress_percent:.1f}%  •  "
+                f"{progress.speed_formatted()}  •  "
+                f"⏱ {progress.eta_formatted()}  •  "
+                f"💾 {progress.downloaded_formatted()} / {progress.size_formatted()}  •  "
+                f"🌱 {progress.seeds} seed"
+            )
+        elif progress.status == "seeding":
+            self.progress.configure(progress_color=theme.COLOR_SUCCESS)
+            status_text = f"✓ Tamamlandı — {progress.size_formatted()}"
+        else:
+            self.progress.configure(progress_color=theme.COLOR_ACCENT)
+            status_text = f"{progress.status} — {progress.progress_percent:.1f}%"
+
+        self.status_label.configure(text=status_text, text_color=theme.COLOR_TEXT_MUTED)
+
+    def set_status_text(self, text: str) -> None:
+        """Durum metnini doğrudan günceller."""
+        self.status_label.configure(text=text)
+
     def mark_complete(self, path: Path) -> None:
         """Tamamlandı durumuna geçer; 'Aç' ve 'Klasörde Göster' butonlarını ekler."""
+        self._video_path = path
         self.completed_path = path
         self.progress.set(1.0)
         self.progress.configure(progress_color=theme.COLOR_SUCCESS)
@@ -132,9 +187,51 @@ class DownloadItem(ctk.CTkFrame):
             ("Aç", lambda: file_utils.open_file(path)),
             ("Klasör", lambda: file_utils.reveal_in_folder(path)),
         ])
+        if self._on_subtitle:
+            self._show_subtitle_btn()
+
+    def _show_subtitle_btn(self):
+        """Altyazı indirme butonu göster."""
+        if hasattr(self, "_subtitle_btn"):
+            return
+        self._subtitle_btn = ctk.CTkButton(
+            self.action_frame,
+            text="Altyazi",
+            width=80,
+            height=32,
+            command=self._on_subtitle_click,
+            fg_color="#1565c0",
+            hover_color="#0d47a1",
+            font=theme.FONT_SMALL,
+        )
+        self._subtitle_btn.pack(pady=2)
+
+    def _on_subtitle_click(self):
+        """Altyazı butonuna basıldı."""
+        if self._on_subtitle:
+            self._subtitle_btn.configure(text="Aranıyor...", state="disabled")
+            self._on_subtitle(self._video_path)
+
+    def set_subtitle_result(self, found: bool, count: int = 0):
+        """Altyazı sonucunu göster."""
+        if not hasattr(self, "_subtitle_btn"):
+            return
+        if found:
+            self._subtitle_btn.configure(
+                text=f"✓ {count} altyazi",
+                fg_color=theme.COLOR_SUCCESS,
+                state="disabled",
+            )
+        else:
+            self._subtitle_btn.configure(
+                text="✗ Bulunamadi",
+                fg_color=theme.COLOR_ERROR,
+                state="normal",
+            )
 
     def mark_error(self, error: Exception) -> None:
         """Hata durumuna geçer."""
+        self._error_flag = True
         self.progress.configure(progress_color=theme.COLOR_ERROR)
         self.status_label.configure(
             text=f"✗  {error}",
@@ -144,15 +241,32 @@ class DownloadItem(ctk.CTkFrame):
 
     def mark_cancelled(self) -> None:
         """İptal durumunu gösterir."""
+        self.progress.set(0)
         self.status_label.configure(
-            text="İptal edildi",
+            text="✕ İptal edildi",
             text_color=theme.COLOR_WARNING,
         )
+        if self._pause_btn_visible:
+            self._pause_btn.pack_forget()
+            self._pause_btn_visible = False
         self._replace_actions([])
 
     # ------------------------------------------------------------------
     # Yardımcılar
     # ------------------------------------------------------------------
+
+    def _toggle_pause(self) -> None:
+        """Pause/Resume toggle."""
+        if self._is_paused:
+            self._is_paused = False
+            self._pause_btn.configure(text="⏸ Duraklat")
+            if self._on_resume:
+                self._on_resume()
+        else:
+            self._is_paused = True
+            self._pause_btn.configure(text="▶ Devam")
+            if self._on_pause:
+                self._on_pause()
 
     def _handle_cancel(self) -> None:
         self.cancel_btn.configure(state="disabled", text="İptal ediliyor...")

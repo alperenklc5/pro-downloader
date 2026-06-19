@@ -12,14 +12,21 @@ from desktop.ui import theme
 class UrlInputFrame(ctk.CTkFrame):
     """URL girişi, yapıştır butonu ve bilgi alma butonu."""
 
-    def __init__(self, master: ctk.CTkBaseClass, on_fetch: Callable[[str], None]) -> None:
+    def __init__(
+        self,
+        master: ctk.CTkBaseClass,
+        on_fetch: Callable[[str], None],
+        on_game_search: Callable[[str], None] | None = None,
+    ) -> None:
         """
         Args:
             master: Üst widget.
             on_fetch: Geçerli URL ile çağrılır.
+            on_game_search: 🎮 butonuna basılınca sorgu string'i ile çağrılır.
         """
         super().__init__(master, corner_radius=theme.CORNER_RADIUS)
         self.on_fetch = on_fetch
+        self.on_game_search = on_game_search
         self._build()
 
     def _build(self) -> None:
@@ -52,6 +59,23 @@ class UrlInputFrame(ctk.CTkFrame):
             pady=theme.PADDING_MEDIUM,
         )
 
+        if self.on_game_search:
+            self.game_btn = ctk.CTkButton(
+                self,
+                text="🎮",
+                width=42,
+                height=42,
+                command=self._game_search,
+                fg_color=theme.COLOR_BG_SECONDARY,
+                hover_color=theme.COLOR_BG_TERTIARY,
+                font=("", 18),
+            )
+            self.game_btn.grid(
+                row=0, column=2,
+                padx=(0, theme.PADDING_SMALL),
+                pady=theme.PADDING_MEDIUM,
+            )
+
         self.fetch_btn = ctk.CTkButton(
             self,
             text="Bilgi Al",
@@ -61,8 +85,9 @@ class UrlInputFrame(ctk.CTkFrame):
             fg_color=theme.COLOR_ACCENT,
             hover_color=theme.COLOR_ACCENT_HOVER,
         )
+        fetch_col = 3 if self.on_game_search else 2
         self.fetch_btn.grid(
-            row=0, column=2,
+            row=0, column=fetch_col,
             padx=(0, theme.PADDING_MEDIUM),
             pady=theme.PADDING_MEDIUM,
         )
@@ -80,6 +105,11 @@ class UrlInputFrame(ctk.CTkFrame):
         if url:
             self.on_fetch(url)
 
+    def _game_search(self) -> None:
+        query = self.url_entry.get().strip()
+        if query and self.on_game_search:
+            self.on_game_search(query)
+
     def set_loading(self, loading: bool) -> None:
         """Yükleniyor durumunu ayarlar (butonları disable/enable eder)."""
         state: str = "disabled" if loading else "normal"
@@ -87,6 +117,8 @@ class UrlInputFrame(ctk.CTkFrame):
         self.fetch_btn.configure(state=state, text=text)
         self.paste_btn.configure(state=state)
         self.url_entry.configure(state=state)
+        if self.on_game_search:
+            self.game_btn.configure(state=state)
 
     def clear(self) -> None:
         """URL alanını temizler."""

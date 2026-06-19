@@ -7,25 +7,32 @@ Tüm UI bileşenlerini birleştirir ve uygulama state'ini yönetir.
 from __future__ import annotations
 
 import logging
+import os
+import re
 import threading
-import tkinter.messagebox as msgbox
+import traceback
+import uuid
 from pathlib import Path
 
 import customtkinter as ctk
 
 from core import DownloadOptions, ProgressInfo, VideoInfo
 from core.cookie_cache import get_metadata, is_cache_valid, sync_from_browser
-from core.error_messages import clean_ansi, humanize_error
-from core.exceptions import AuthenticationRequiredError, CookieError
+from core.error_messages import humanize_error
+from core.exceptions import AuthenticationRequiredError
+from core.torrent import (
+    detect_from_url, ContentInfo, TorrentResult,
+    TorrentDownloader, TorrentProgress,
+)
+from core.torrent.power_manager import prevent_sleep, allow_sleep
 from desktop.config import AppConfig
 from desktop.ui import theme
-from desktop.ui.error_dialog import ErrorDialog
 from desktop.ui.download_item import DownloadItem
-from desktop.ui.download_list import DownloadList
-from desktop.ui.format_picker import FormatPickerFrame
-from desktop.ui.settings_window import SettingsWindow
-from desktop.ui.url_input import UrlInputFrame
-from desktop.ui.video_info import VideoInfoFrame
+from desktop.ui.error_dialog import ErrorDialog
+from desktop.ui.log_window import LogWindow
+from desktop.ui.pages import VideoPage, TorrentPage, GamePage, ActiveDownloadsPage, SettingsPage, HostingPage
+from desktop.ui.sidebar import Sidebar
+from desktop.ui.status_bar import StatusBar
 from desktop.utils.threading_helper import run_on_ui
 from desktop.workers.download_worker import DownloadWorker
 from desktop.workers.extract_worker import ExtractWorker
@@ -40,10 +47,15 @@ class App(ctk.CTk):
         super().__init__()
 
         self.config_obj = AppConfig.load()
-        ctk.set_appearance_mode(self.config_obj.theme_mode)
+        os.environ["JACKETT_URL"] = self.config_obj.jackett_url or ""
+        os.environ["JACKETT_API_KEY"] = self.config_obj.jackett_api_key or ""
+        os.environ["OPENSUBTITLES_API_KEY"] = self.config_obj.opensubtitles_api_key or ""
+        print(f"DEBUG Jackett URL: {os.environ.get('JACKETT_URL')}")
+        print(f"DEBUG Jackett KEY: {os.environ.get('JACKETT_API_KEY')[:10] if os.environ.get('JACKETT_API_KEY') else 'BOS'}")
+        ctk.set_appearance_mode("dark")          # Midnight Ocean her zaman koyu
         ctk.set_default_color_theme("blue")
 
-        self.title("Video Downloader")
+        self.title("Pro Downloader")
         self.geometry(f"{theme.WINDOW_DEFAULT_WIDTH}x{theme.WINDOW_DEFAULT_HEIGHT}")
         self.minsize(theme.WINDOW_MIN_WIDTH, theme.WINDOW_MIN_HEIGHT)
 
@@ -51,94 +63,89 @@ class App(ctk.CTk):
         self.current_info: VideoInfo | None = None
         self._extract_generation: int = 0          # eski worker sonuçlarını yok say
         self.active_workers: dict[DownloadItem, DownloadWorker] = {}
+        self._active_torrent_downloaders: list[TorrentDownloader] = []
+        self.current_page: str = "video"
+
+        self.protocol("WM_DELETE_WINDOW", self._on_closing)
 
         self._build_ui()
+        self.log_window = LogWindow(self)
+
+        # Yarım kalan indirmeleri kontrol et (UI hazır olduktan sonra)
+        self.after(500, self._check_pending_downloads)
+        self.after(2000, self._tick_status_bar)
 
     # ------------------------------------------------------------------
     # UI inşası
     # ------------------------------------------------------------------
 
     def _build_ui(self) -> None:
-        self.rowconfigure(4, weight=1)
-        self.columnconfigure(0, weight=1)
+        # Ana grid: sidebar (sütun 0) + içerik (sütun 1)
+        self.grid_columnconfigure(1, weight=1)
+        self.grid_rowconfigure(0, weight=1)
+        self.configure(fg_color=theme.BG_PRIMARY)
 
-        # --- Header ---
-        header = ctk.CTkFrame(self, fg_color="transparent")
-        header.grid(row=0, column=0, sticky="ew", padx=theme.PADDING_LARGE, pady=(theme.PADDING_LARGE, 0))
-        header.columnconfigure(0, weight=1)
+        # --- Sol Sidebar ---
+        self.sidebar = Sidebar(self, on_navigate=self._navigate)
+        self.sidebar.grid(row=0, column=0, sticky="ns")
 
-        ctk.CTkLabel(
-            header,
-            text="Video Downloader",
-            font=theme.FONT_TITLE,
-        ).grid(row=0, column=0, sticky="w")
+        # --- Sağ İçerik Alanı ---
+        content = ctk.CTkFrame(self, fg_color=theme.BG_PRIMARY, corner_radius=0)
+        content.grid(row=0, column=1, sticky="nsew")
+        content.grid_rowconfigure(0, weight=1)
+        content.grid_columnconfigure(0, weight=1)
 
-        self.settings_btn = ctk.CTkButton(
-            header,
-            text="⚙  Ayarlar",
-            width=110,
-            height=32,
-            font=theme.FONT_SMALL,
-            fg_color="transparent",
-            border_width=1,
-            command=self._open_settings,
-        )
-        self.settings_btn.grid(row=0, column=1, sticky="e")
+        # --- Sayfalar ---
+        self.pages: dict[str, ctk.CTkFrame] = {}
+        self.pages["video"]    = VideoPage(content, self)
+        self.pages["torrent"]  = TorrentPage(content, self)
+        self.pages["game"]     = GamePage(content, self)
+        self.pages["hosting"]  = HostingPage(content, self)
+        self.pages["active"]   = ActiveDownloadsPage(content, self)
+        self.pages["settings"] = SettingsPage(content, self)
 
-        # --- URL girişi ---
-        self.url_input = UrlInputFrame(self, on_fetch=self._on_fetch)
-        self.url_input.grid(
-            row=1, column=0, sticky="ew",
-            padx=theme.PADDING_LARGE,
-            pady=(theme.PADDING_MEDIUM, 0),
-        )
+        # VideoPage bileşenlerine kısayollar — iş mantığı değişmeden çalışır
+        self.url_input      = self.pages["video"].url_input
+        self.format_picker  = self.pages["video"].format_picker
+        self.download_list  = self.pages["video"].download_list
 
-        # --- Hata bandı (gizli) ---
-        self.error_frame = ctk.CTkFrame(self, fg_color=theme.COLOR_ERROR, corner_radius=theme.CORNER_RADIUS)
-        self.error_label = ctk.CTkLabel(
-            self.error_frame,
-            text="",
-            font=theme.FONT_SMALL,
-            text_color="white",
-            anchor="w",
-        )
-        self.error_label.pack(side="left", fill="x", expand=True, padx=theme.PADDING_MEDIUM, pady=6)
-        ctk.CTkButton(
-            self.error_frame,
-            text="✕",
-            width=28,
-            height=28,
-            fg_color="transparent",
-            hover_color="#a00000",
-            command=self._hide_error,
-        ).pack(side="right", padx=(0, theme.PADDING_SMALL))
-        # error_frame başta grid'e konmaz; _show_error / _hide_error yönetir
+        # Tüm indirmeler Aktif İndirmeler sayfasına gider
+        self.active_download_list = self.pages["active"].download_list
 
-        # --- Video bilgisi kartı (başta gizli) ---
-        self.video_info_frame = VideoInfoFrame(self)
-        # grid ile konmaz; _show_video_info ile gösterilir
+        # Varsayılan sayfa: Video
+        self.current_page = "video"
+        self.pages["video"].grid(row=0, column=0, sticky="nsew")
 
-        # --- Format seçici ---
-        self.format_picker = FormatPickerFrame(
-            self,
-            on_download=self._on_download,
-            default_quality=self.config_obj.default_quality,
-            default_video_format=self.config_obj.default_video_format,
-            default_audio_format=self.config_obj.default_audio_format,
-        )
-        self.format_picker.grid(
-            row=3, column=0, sticky="ew",
-            padx=theme.PADDING_LARGE,
-            pady=(theme.PADDING_MEDIUM, 0),
-        )
+        # --- Alt Durum Çubuğu ---
+        self.status_bar = StatusBar(self)
+        self.status_bar.grid(row=1, column=0, columnspan=2, sticky="ew")
 
-        # --- İndirme listesi ---
-        self.download_list = DownloadList(self)
-        self.download_list.grid(
-            row=4, column=0, sticky="nsew",
-            padx=theme.PADDING_LARGE,
-            pady=theme.PADDING_MEDIUM,
-        )
+    def _navigate(self, page_key: str) -> None:
+        """Sidebar navigasyonu — sayfa değiştir."""
+        if page_key == "log":
+            self.log_window.toggle()
+            return
+
+        if self.current_page in self.pages:
+            self.pages[self.current_page].grid_forget()
+
+        if page_key in self.pages:
+            self.pages[page_key].grid(row=0, column=0, sticky="nsew")
+            self.current_page = page_key
+
+    def _go_to_page(self, page_key: str) -> None:
+        """Programatik sayfa geçişi — sidebar aktif durumunu da günceller."""
+        self._navigate(page_key)
+        self.sidebar.set_active(page_key)
+
+    def _tick_status_bar(self) -> None:
+        """Status bar'ı 2 saniyede bir güncelle."""
+        active_count = sum(
+            1 for item in self.active_workers if item.completed_path is None
+        ) + len(self._active_torrent_downloaders)
+        self.status_bar.update(active_count=active_count, total_speed=0)
+        self.pages["active"].refresh_stats()
+        self.after(2000, self._tick_status_bar)
 
     # ------------------------------------------------------------------
     # Callback: URL bilgi alma
@@ -146,6 +153,21 @@ class App(ctk.CTk):
 
     def _on_fetch(self, url: str) -> None:
         """Kullanıcı 'Bilgi Al' butonuna bastı."""
+        # Mega/Pixeldrain link kontrolü
+        from core.hosting import SmartDownloader
+        if url and SmartDownloader.is_supported(url):
+            service = SmartDownloader.detect_service(url)
+            self._log(f"{'Mega.nz' if service == 'mega' else 'Pixeldrain'} linki algılandı", "info")
+            self._start_hosting_download(url)
+            return
+
+        # Düz metin (URL değil) → yt-dlp'ye göndermeden direkt torrent araması
+        if url and not url.lower().startswith(("http://", "https://", "ftp://")):
+            from core.torrent.detector import ContentInfo
+            content_info = ContentInfo(name=url.strip(), original_url=url)
+            self._open_torrent_dialog(content_info)
+            return
+
         if not self._check_cookie_cache():
             return
         self._hide_error()
@@ -167,7 +189,7 @@ class App(ctk.CTk):
             if isinstance(exc, AuthenticationRequiredError):
                 run_on_ui(self, self._on_auth_required, exc)
             else:
-                run_on_ui(self, self._on_extract_error, exc, generation)
+                run_on_ui(self, self._on_extract_error, exc, generation, url)
 
         ExtractWorker(url, on_success=on_success, on_error=on_error, cookies=cookie_config).start()
 
@@ -180,15 +202,233 @@ class App(ctk.CTk):
         self._show_video_info(info)
         self.format_picker.set_enabled(True)
 
-    def _on_extract_error(self, exc: Exception, generation: int) -> None:
+    def _on_extract_error(self, exc: Exception, generation: int, url: str = "") -> None:
         if generation != self._extract_generation:
             return
 
         self.url_input.set_loading(False)
         friendly = humanize_error(str(exc))
         self._show_error(friendly.title + ": " + friendly.message)
-        ErrorDialog(self, friendly, on_open_settings=self._open_cookies_settings)
         logger.warning("Bilgi çekme hatası: %s", exc)
+
+        # Düz metin girişi (URL değil) → direkt torrent araması
+        is_plain_text = url and not url.lower().startswith(("http://", "https://", "ftp://"))
+        if is_plain_text:
+            from core.torrent.detector import ContentInfo
+            content_info = ContentInfo(name=url.strip(), original_url=url)
+            self._open_torrent_dialog(content_info)
+            return
+
+        # URL girişi — her hata türünde detect_from_url ile içerik adı çıkar
+        if url:
+            content_info = detect_from_url(url)
+            if content_info.name:
+                self._open_torrent_dialog(content_info)
+                return
+
+        ErrorDialog(self, friendly, on_open_settings=self._open_cookies_settings)
+
+    def _open_torrent_dialog(self, content_info: ContentInfo, show_games: bool = False) -> None:
+        """Torrent veya oyun sayfasına geçip arama başlat."""
+        if show_games:
+            self.pages["game"].start_game_search(content_info.name)
+            self._go_to_page("game")
+        else:
+            self.pages["torrent"].start_search(content_info)
+            self._go_to_page("torrent")
+
+    def _open_game_search(self, query: str) -> None:
+        """Oyun sayfasına geçip arama başlat."""
+        if not query:
+            return
+        self.pages["game"].start_game_search(query)
+        self._go_to_page("game")
+
+    def _start_hosting_download(self, url: str) -> None:
+        """Mega/Pixeldrain indirme başlat."""
+        from core.hosting import SmartDownloader
+        from core.hosting.mega_downloader import DownloadProgress
+
+        service = SmartDownloader.detect_service(url)
+        if not service:
+            self._log(f"[Hosting] Desteklenmeyen URL: {url}", "error")
+            return
+
+        safe_name = f"{service}_{uuid.uuid4().hex[:8]}"
+        output_dir = Path(self.config_obj.download_dir) / "hosting" / safe_name
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        vps_url = getattr(self.config_obj, "api_base_url", None)
+        downloader = SmartDownloader(output_dir=output_dir, vps_url=vps_url)
+
+        item = DownloadItem(
+            self.active_download_list,
+            title=f"[{service.capitalize()}] İndiriliyor...",
+            on_cancel=downloader.cancel,
+            on_pause=downloader.pause,
+            on_resume=downloader.resume,
+        )
+        self.active_download_list.add_item(item)
+        self._go_to_page("active")
+
+        def on_progress(progress: DownloadProgress) -> None:
+            tp = TorrentProgress(
+                status=progress.status,
+                progress_percent=progress.percent,
+                download_speed=progress.speed,
+                upload_speed=0,
+                seeds=0,
+                peers=0,
+                eta_seconds=progress.eta_seconds,
+                name=progress.current_ip_source,
+                downloaded_bytes=progress.downloaded_bytes,
+                total_bytes=progress.total_bytes,
+            )
+            run_on_ui(self, item.update_torrent_progress, tp)
+
+        def task() -> None:
+            prevent_sleep()
+            try:
+                self._log(f"İndirme başlıyor: {url[:60]}...", "info")
+                run_on_ui(self, self.log_window.show)
+                result = downloader.download(
+                    url,
+                    progress_callback=on_progress,
+                    log_callback=lambda msg: self._log(msg, "info"),
+                )
+                if result:
+                    self._log(f"✓ İndirme tamamlandı: {result.name}", "success")
+                    run_on_ui(self, item.mark_complete, result)
+                else:
+                    self._log("✗ İndirme başarısız", "error")
+                    run_on_ui(self, item.mark_error, Exception("İndirme başarısız"))
+            except Exception as e:
+                self._log(f"✗ Hata: {e}", "error")
+                run_on_ui(self, item.mark_error, e)
+            finally:
+                allow_sleep()
+
+        threading.Thread(target=task, daemon=True).start()
+
+    def _start_torrent_download(
+        self,
+        result: TorrentResult,
+        content_info: ContentInfo,
+    ) -> None:
+        """Torrent indirme başlat."""
+        safe_name = re.sub(r'[<>:"/\\|?*]', "", result.title)
+        safe_name = safe_name[:40].strip()
+        safe_name = f"{safe_name}_{uuid.uuid4().hex[:6]}"
+        base_subdir = "games" if content_info.content_type == "game" else "torrents"
+        output_dir = Path(self.config_obj.download_dir) / base_subdir / safe_name
+        output_dir.mkdir(parents=True, exist_ok=True)
+        downloader = TorrentDownloader(output_dir)
+        self._active_torrent_downloaders.append(downloader)
+
+        def on_subtitle_request(video_path: Path) -> None:
+            """Altyazı butonu tıklandı."""
+
+            def subtitle_task():
+                from core.torrent.subdl import auto_subtitle_subdl, parse_video_filename
+
+                # Video dosya adından parse et
+                parsed = parse_video_filename(video_path.name) if video_path else {}
+                clean_title = parsed.get("title") or result.title
+                season = parsed.get("season") or content_info.season
+                episode = parsed.get("episode") or content_info.episode
+                content_type = parsed.get("content_type", "movie")
+
+                self._log(f"Altyazı aranıyor: {clean_title} S{season}E{episode}", "info")
+                if video_path:
+                    run_on_ui(self, self.log_window.show)
+
+                subtitles = auto_subtitle_subdl(
+                    title=clean_title,
+                    video_path=video_path,
+                    api_key=self.config_obj.subdl_api_key,
+                    imdb_id=result.imdb_id,
+                    season=season,
+                    episode=episode,
+                    content_type=content_type,
+                    languages=["TR", "EN"],
+                    log_callback=lambda msg: self._log(msg, "info"),
+                    opensubtitles_api_key=self.config_obj.opensubtitles_api_key,
+                )
+
+                found = len(subtitles) > 0
+                run_on_ui(self, item.set_subtitle_result, found, len(subtitles))
+
+                if found:
+                    self._log(f"\u2713 {len(subtitles)} altyazı indirildi", "success")
+                else:
+                    self._log("\u2717 Altyazı bulunamadı", "warning")
+
+            threading.Thread(target=subtitle_task, daemon=True).start()
+
+        item = DownloadItem(
+            self.active_download_list,
+            title=f"[Torrent] {result.title} {result.quality}",
+            on_cancel=downloader.cancel,
+            on_subtitle=on_subtitle_request,
+            on_pause=downloader.pause,
+            on_resume=downloader.resume,
+        )
+        self.active_download_list.add_item(item)
+        self._go_to_page("active")
+
+        def on_progress(progress: TorrentProgress) -> None:
+            run_on_ui(self, item.update_torrent_progress, progress)
+
+        def task() -> None:
+            prevent_sleep()
+            try:
+                if downloader.load_resume_json():
+                    self._log(f"⏩ Kaldığı yerden devam ediliyor: {result.title}", "info")
+                else:
+                    self._log(f"▶ İndirme başlıyor: {result.title}", "info")
+                video_path = downloader.download(
+                    magnet=result.magnet or "",
+                    torrent_url=result.torrent_url or "",
+                    progress_callback=on_progress,
+                )
+
+                # None dönerse önce iptal kontrolü yap
+                if video_path is None:
+                    if downloader._cancel_flag:
+                        self._log("İndirme iptal edildi", "warning")
+                        run_on_ui(self, item.mark_cancelled)
+                        return
+
+                    # İptal değil — output_dir içinde en büyük video dosyasını manuel ara
+                    logger.warning("downloader.download() None döndü, output_dir taranıyor...")
+                    found_videos = []
+                    for ext in [".mkv", ".mp4", ".avi", ".mov"]:
+                        for f in output_dir.rglob("*"):
+                            try:
+                                if f.is_file() and f.suffix.lower() == ext:
+                                    found_videos.append(f)
+                            except Exception:
+                                continue
+                    video_path = max(found_videos, key=lambda f: f.stat().st_size) if found_videos else None
+
+                if video_path is None:
+                    raise Exception("İndirme başarısız")
+
+                self._log(f"\u2713 İndirme tamamlandı: {video_path.name}", "success")
+                run_on_ui(self, item.mark_complete, video_path)
+
+            except Exception as e:
+                self._log(f"\u2717 İndirme hatası: {e}", "error")
+                logger.error(traceback.format_exc())
+                run_on_ui(self, item.mark_error, e)
+            finally:
+                allow_sleep()
+                try:
+                    self._active_torrent_downloaders.remove(downloader)
+                except ValueError:
+                    pass
+
+        threading.Thread(target=task, daemon=True).start()
 
     def _on_auth_required(self, exc: Exception) -> None:
         """Login gerektiren video için özel yönlendirme dialog'u."""
@@ -280,11 +520,12 @@ class App(ctk.CTk):
 
         title = self.current_info.title or self.url_input.get_url()
         item = DownloadItem(
-            self.download_list,
+            self.active_download_list,
             title=title,
             on_cancel=lambda: self._on_cancel(item),
         )
-        self.download_list.add_item(item)
+        self.active_download_list.add_item(item)
+        self._go_to_page("active")
 
         url = self.url_input.get_url() or self.current_info.url
 
@@ -331,16 +572,31 @@ class App(ctk.CTk):
         logger.warning("İndirme hatası: %s", exc)
 
     # ------------------------------------------------------------------
+    # Log
+    # ------------------------------------------------------------------
+
+    def _log(self, message: str, level: str = "info") -> None:
+        """Log penceresine ve Python logger'a mesaj yaz."""
+        log_level = {
+            "info": logging.INFO,
+            "success": logging.INFO,
+            "warning": logging.WARNING,
+            "error": logging.ERROR,
+        }.get(level, logging.INFO)
+        logger.log(log_level, message)
+        if hasattr(self, "log_window"):
+            self.after(0, lambda: self.log_window.log(message, level))
+
+    # ------------------------------------------------------------------
     # Ayarlar
     # ------------------------------------------------------------------
 
     def _open_settings(self, focus_tab: str | None = None) -> None:
-        SettingsWindow(
-            self,
-            config=self.config_obj,
-            on_save=self._on_settings_saved,
-            focus_tab=focus_tab,
-        )
+        """Ayarlar sayfasına geç (popup açmaz)."""
+        self.pages["settings"].load_config(self.config_obj)
+        if focus_tab:
+            self.pages["settings"].set_focus_tab(focus_tab)
+        self._go_to_page("settings")
 
     def _on_settings_saved(self, config: AppConfig) -> None:
         self.config_obj = config
@@ -350,22 +606,20 @@ class App(ctk.CTk):
             video_format=config.default_video_format,
             audio_format=config.default_audio_format,
         )
+        # Jackett/API key env var'larını güncelle
+        os.environ["JACKETT_URL"] = config.jackett_url or ""
+        os.environ["JACKETT_API_KEY"] = config.jackett_api_key or ""
+        os.environ["OPENSUBTITLES_API_KEY"] = config.opensubtitles_api_key or ""
 
     # ------------------------------------------------------------------
     # UI yardımcıları
     # ------------------------------------------------------------------
 
     def _show_video_info(self, info: VideoInfo) -> None:
-        self.video_info_frame.show_info(info)
-        self.video_info_frame.grid(
-            row=2, column=0, sticky="ew",
-            padx=theme.PADDING_LARGE,
-            pady=(theme.PADDING_MEDIUM, 0),
-        )
+        self.pages["video"].show_video_info(info)
 
     def _hide_video_info(self) -> None:
-        self.video_info_frame.grid_remove()
-        self.video_info_frame.clear()
+        self.pages["video"].hide_video_info()
 
     # ------------------------------------------------------------------
     # Cookie cache kontrol
@@ -499,17 +753,40 @@ class App(ctk.CTk):
         self._open_settings(focus_tab="Cookies & Login")
 
     def _show_error(self, message: str) -> None:
-        cleaned = clean_ansi(message)
-        if len(cleaned) > 120:
-            cleaned = cleaned[:120] + "..."
-        self.error_label.configure(text=cleaned)
-        self.error_frame.grid(
-            row=1, column=0, sticky="ew",  # URL input'un altında
-            padx=theme.PADDING_LARGE,
-            pady=(theme.PADDING_SMALL, 0),
-        )
-        # Otomatik gizle (8sn sonra)
-        self.after(8000, self._hide_error)
+        self.pages["video"].show_error(message)
 
     def _hide_error(self) -> None:
-        self.error_frame.grid_remove()
+        self.pages["video"].hide_error()
+
+    # ------------------------------------------------------------------
+    # Uygulama kapatma & resume
+    # ------------------------------------------------------------------
+
+    def _on_closing(self) -> None:
+        """Uygulama kapanırken aktif torrent indirmelerini duraklat (resume kaydeder)."""
+        for dl in list(self._active_torrent_downloaders):
+            try:
+                dl.pause()
+            except Exception:
+                pass
+        self.destroy()
+
+    def _check_pending_downloads(self) -> None:
+        """Uygulama açılınca yarım kalan torrent indirmelerini bildir."""
+        pending = []
+        for base in ("torrents", "games"):
+            base_dir = Path(self.config_obj.download_dir) / base
+            if not base_dir.exists():
+                continue
+            for d in base_dir.iterdir():
+                if d.is_dir() and (d / ".resume_data").exists():
+                    pending.append(d)
+
+        if not pending:
+            return
+
+        self._log(
+            f"⚠ {len(pending)} yarım kalan indirme bulundu. "
+            "Aynı torrent'i tekrar seçerek kaldığı yerden devam edebilirsiniz.",
+            "warning",
+        )

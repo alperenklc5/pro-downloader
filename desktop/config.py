@@ -41,6 +41,11 @@ class AppConfig:
     cookies_browser: str | None = None
     cookies_browser_profile: str | None = None
     cookies_file_path: str | None = None
+    opensubtitles_api_key: str = ""
+    tmdb_api_key: str = ""
+    jackett_url: str = "http://164.68.113.20:9117"
+    jackett_api_key: str = ""
+    subdl_api_key: str = ""
 
     def get_cookie_config(self) -> CookieConfig:
         """AppConfig alanlarından CookieConfig nesnesi oluşturur."""
@@ -79,6 +84,23 @@ class AppConfig:
         # Migration: Firefox'ta "Default" profil ismi yanlıştı
         if self.cookies_browser == "firefox" and self.cookies_browser_profile == "Default":
             self.cookies_browser_profile = None
+            changed = True
+        # Migration: API key'leri ilk kez yüklenince default değerleri set et
+        _DEFAULT_OS_KEY = "PmXAGNbhYtkH2qITQxIzRwouYDsjXXqm"
+        _DEFAULT_TMDB_KEY = "58e6ca764e9b5cc14dc55881b88663b6"
+        _DEFAULT_JACKETT_KEY = "g68fqkdf2v3bme4byv98aycrxz3svnwp"
+        if not self.opensubtitles_api_key:
+            self.opensubtitles_api_key = _DEFAULT_OS_KEY
+            changed = True
+        if not self.tmdb_api_key:
+            self.tmdb_api_key = _DEFAULT_TMDB_KEY
+            changed = True
+        if not self.jackett_api_key:
+            self.jackett_api_key = _DEFAULT_JACKETT_KEY
+            changed = True
+        _DEFAULT_SUBDL_KEY = "iGLjkQwljs6TpCjqVpIztDGXSiebpr7v"
+        if not self.subdl_api_key:
+            self.subdl_api_key = _DEFAULT_SUBDL_KEY
             changed = True
         if changed:
             self.save()

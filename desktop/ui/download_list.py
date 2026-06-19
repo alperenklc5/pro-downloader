@@ -40,3 +40,17 @@ class DownloadList(ctk.CTkScrollableFrame):
     def has_items(self) -> bool:
         """Listede herhangi bir öğe var mı?"""
         return len(self._items) > 0
+
+    def get_stats(self) -> tuple[int, int, int, int]:
+        """(active, paused, complete, error) sayılarını döndür."""
+        active = paused = complete = error = 0
+        for item in self._items:
+            if item.completed_path is not None:
+                complete += 1
+            elif item._error_flag:
+                error += 1
+            elif item._is_paused:
+                paused += 1
+            else:
+                active += 1
+        return active, paused, complete, error

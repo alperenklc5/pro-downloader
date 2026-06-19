@@ -1,6 +1,6 @@
 """API request/response şemaları."""
 from datetime import datetime
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Literal
 
 
@@ -77,6 +77,28 @@ class TaskProgressResponse(BaseModel):
     created_at: datetime
     completed_at: datetime | None = None
     download_url: str | None = None  # Tamamlandığında dolu
+
+    # Redis'ten float gelebiliyor, int'e çevir
+    @field_validator('total_bytes', 'eta_seconds', 'downloaded_bytes',
+                     'file_size_bytes', mode='before')
+    @classmethod
+    def coerce_to_int(cls, v):
+        if v is None:
+            return None
+        try:
+            return int(float(v))
+        except (TypeError, ValueError):
+            return None
+
+    @field_validator('progress_percent', 'speed_bytes_per_sec', mode='before')
+    @classmethod
+    def coerce_to_float(cls, v):
+        if v is None:
+            return None
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
 
 
 class ErrorResponse(BaseModel):
