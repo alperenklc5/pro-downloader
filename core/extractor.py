@@ -1,8 +1,8 @@
-"""
-Video bilgisi çekme modülü.
+﻿"""
+Video bilgisi Ã§ekme modÃ¼lÃ¼.
 
-İndirme yapmadan URL'den başlık, süre, mevcut formatlar gibi
-meta verileri alır.
+Ä°ndirme yapmadan URL'den baÅŸlÄ±k, sÃ¼re, mevcut formatlar gibi
+meta verileri alÄ±r.
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class VideoInfo:
-    """Bir video veya playlist hakkındaki meta veriler."""
+    """Bir video veya playlist hakkÄ±ndaki meta veriler."""
 
     url: str
     title: str
@@ -49,21 +49,21 @@ def extract_info(
     cookies: CookieConfig | None = None,
 ) -> VideoInfo:
     """
-    URL'den video meta verilerini çeker. İndirme yapmaz.
+    URL'den video meta verilerini Ã§eker. Ä°ndirme yapmaz.
 
     Args:
         url: Desteklenen herhangi bir site URL'si.
-        timeout: Ağ isteği zaman aşımı (saniye).
-        cookies: Cookie yapılandırması (opsiyonel).
+        timeout: AÄŸ isteÄŸi zaman aÅŸÄ±mÄ± (saniye).
+        cookies: Cookie yapÄ±landÄ±rmasÄ± (opsiyonel).
 
     Returns:
         VideoInfo nesnesi.
 
     Raises:
-        InvalidURLError: URL geçersiz veya desteklenmiyor.
-        VideoUnavailableError: Video private, silinmiş ya da kısıtlı.
+        InvalidURLError: URL geÃ§ersiz veya desteklenmiyor.
+        VideoUnavailableError: Video private, silinmiÅŸ ya da kÄ±sÄ±tlÄ±.
         AuthenticationRequiredError: Login/cookie gerekiyor.
-        NetworkError: Ağ bağlantısı sorunu.
+        NetworkError: AÄŸ baÄŸlantÄ±sÄ± sorunu.
     """
     ydl_opts: dict = {
         "quiet": True,
@@ -71,17 +71,18 @@ def extract_info(
         "extract_flat": False,
         "socket_timeout": timeout,
         "skip_download": True,
+        "js_runtimes": {"node": {"path": "C:\\Program Files\\nodejs\\node.exe"}},
+        "remote_components": ["ejs:github"],
     }
-
     if cookies:
         ydl_opts.update(cookies.to_ydl_opts())
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            logger.debug("Bilgi çekiliyor: %s", url)
+            logger.debug("Bilgi Ã§ekiliyor: %s", url)
             info = ydl.extract_info(url, download=False)
     except yt_dlp.utils.DownloadError as exc:
-        # Önce auth gerektiriyor mu kontrol et
+        # Ã–nce auth gerektiriyor mu kontrol et
         exc_class = parse_yt_dlp_error(str(exc))
         if exc_class is AuthenticationRequiredError:
             raise AuthenticationRequiredError(str(exc)) from exc
@@ -90,7 +91,7 @@ def extract_info(
         raise NetworkError(f"Beklenmeyen hata: {exc}") from exc
 
     if info is None:
-        raise InvalidURLError(f"Bilgi alınamadı: {url}")
+        raise InvalidURLError(f"Bilgi alÄ±namadÄ±: {url}")
 
     video_formats, audio_formats = parse_formats(info)
 
@@ -115,15 +116,15 @@ def extract_info(
 
 
 # ---------------------------------------------------------------------------
-# Yardımcı fonksiyonlar
+# YardÄ±mcÄ± fonksiyonlar
 # ---------------------------------------------------------------------------
 
 def _raise_mapped_exception(message: str) -> None:
     """
-    yt-dlp DownloadError mesajını uygun özel exception'a çevirir.
+    yt-dlp DownloadError mesajÄ±nÄ± uygun Ã¶zel exception'a Ã§evirir.
 
     Args:
-        message: İstisna mesajı.
+        message: Ä°stisna mesajÄ±.
 
     Raises:
         InvalidURLError | VideoUnavailableError | NetworkError
@@ -163,5 +164,6 @@ def _raise_mapped_exception(message: str) -> None:
     if any(kw in msg_lower for kw in invalid_keywords):
         raise InvalidURLError(message)
 
-    # Varsayılan: URL desteklenmiyor kabul et
+    # VarsayÄ±lan: URL desteklenmiyor kabul et
     raise InvalidURLError(message)
+

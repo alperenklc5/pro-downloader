@@ -219,7 +219,13 @@ class App(ctk.CTk):
             self._open_torrent_dialog(content_info)
             return
 
-        # URL girişi — her hata türünde detect_from_url ile içerik adı çıkar
+        # Bilinen video siteleri — torrent aramasına yönlendirme, sadece hata göster
+        known_video_sites = ["youtube.com", "youtu.be", "vimeo.com", "dailymotion.com"]
+        if url and any(site in url for site in known_video_sites):
+            ErrorDialog(self, friendly, on_open_settings=self._open_cookies_settings)
+            return
+
+        # Diğer URL'ler — detect_from_url ile içerik adı çıkar, torrent'e yönlendir
         if url:
             content_info = detect_from_url(url)
             if content_info.name:

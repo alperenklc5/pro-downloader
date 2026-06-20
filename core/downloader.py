@@ -90,8 +90,13 @@ class Downloader:
         except DownloadCancelledError:
             raise
         except yt_dlp.utils.DownloadError as exc:
-            _raise_mapped_exception(str(exc))
-            raise  # unreachable; mypy için
+            err_str = str(exc)
+            if "Requested format is not available" in err_str:
+                logger.warning("İstenen format mevcut değil, format 18 ile tekrar deneniyor...")
+                info = self._download_with_fallback(url, ydl_opts, progress_callback)
+            else:
+                _raise_mapped_exception(err_str)
+                raise  # unreachable; mypy için
         except Exception as exc:
             raise DownloaderError(f"İndirme hatası: {exc}") from exc
 
@@ -154,8 +159,22 @@ class Downloader:
             "postprocessors": postprocessors,
             "progress_hooks": hooks,
             "quiet": True,
+            "extractor_args": {
+            "youtube": {
+                "js_runtime": ["node:C:\\Program Files\\nodejs\\node.exe"],
+            },
+        },
+        "remote_components": "ejs:github",
             "no_warnings": True,
+            "js_runtimes": {"node": {"path": "C:\\Program Files\\nodejs\\node.exe"}},
+        "remote_components": ["ejs:github"],
             "merge_output_format": opts.video_format if not opts.audio_only else None,
+            "extractor_args": {
+                "youtube": {
+                    "js_runtime": ["node:C:\\Program Files\\nodejs\\node.exe"],
+                },
+            },
+            "remote_components": "ejs:github",
         }
 
         if opts.download_subtitles:
@@ -169,6 +188,29 @@ class Downloader:
         ydl_opts.update(opts.cookies.to_ydl_opts())
 
         return ydl_opts
+
+    def _download_with_fallback(
+        self,
+        url: str,
+        base_opts: dict,
+        progress_callback: Callable[[ProgressInfo], None] | None,
+    ) -> dict:
+        """Format mevcut değilse format 18 (360p ses+video birleşik) ile dene."""
+        fallback_opts = dict(base_opts)
+        fallback_opts["format"] = "18/best[height<=360]/best"
+        try:
+            with yt_dlp.YoutubeDL(fallback_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+            if info is None:
+                raise DownloaderError("Format 18 fallback: indirme bilgisi alınamadı.")
+            return info
+        except DownloadCancelledError:
+            raise
+        except yt_dlp.utils.DownloadError as exc:
+            _raise_mapped_exception(str(exc))
+            raise
+        except Exception as exc:
+            raise DownloaderError(f"Fallback indirme hatası: {exc}") from exc
 
     def _wrap_callback(
         self, callback: Callable[[ProgressInfo], None]

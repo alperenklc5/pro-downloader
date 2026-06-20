@@ -7,7 +7,7 @@ import threading
 from typing import Callable
 
 from core import CookieConfig, VideoInfo, extract_info
-from core.exceptions import DownloaderError
+from core.exceptions import AuthenticationRequiredError, DownloaderError
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +48,24 @@ class ExtractWorker:
     def _run(self) -> None:
         logger.debug("Bilgi çekiliyor: %s", self.url)
         try:
-            info = extract_info(self.url, cookies=self.cookies)
+            try:
+                info = extract_info(self.url, cookies=self.cookies)
+            except AuthenticationRequiredError:
+                if self.cookies:
+                    logger.debug("Auth gerekiyor, cookie ile tekrar deneniyor...")
+                    info = extract_info(self.url, cookies=self.cookies)
+                else:
+                    raise
+            except Exception as exc:
+                error_str = str(exc).lower()
+                if "format" in error_str or "not available" in error_str:
+                    logger.warning("Format sorunu, cookie olmadan tekrar deneniyor...")
+                    try:
+                        info = extract_info(self.url, cookies=None)
+                    except Exception:
+                        raise exc
+                else:
+                    raise
             self.on_success(info)
         except DownloaderError as exc:
             logger.warning("Bilgi çekme hatası: %s", exc)
