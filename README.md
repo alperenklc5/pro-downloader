@@ -9,6 +9,27 @@ Evrensel video, torrent ve dosya indirme uygulaması. Desktop (Windows) + Androi
 
 ---
 
+## 📸 Ekran Görüntüleri
+
+<img width="1530" alt="Video İndirici" src="https://github.com/user-attachments/assets/0a36efc2-e5ca-4dc2-97a4-60870c1eb503" />
+
+<details>
+<summary>Daha fazla ekran görüntüsü göster</summary>
+
+<br>
+
+<img width="1900" alt="Torrent Arama" src="https://github.com/user-attachments/assets/47d89c3d-4e22-4e65-a63b-3dedf0bd4b8d" />
+
+<img width="1918" alt="Aktif İndirmeler" src="https://github.com/user-attachments/assets/28fabb51-d9ec-45f2-a897-f674bd7e7905" />
+
+<img width="1908" alt="Oyun İndirici" src="https://github.com/user-attachments/assets/21b7408a-d8bd-4ce4-b9ed-aaf0abf6fd1a" />
+
+<img width="1918" alt="Log Penceresi" src="https://github.com/user-attachments/assets/898245e0-1fbd-4b26-94f8-9ecdd0662d03" />
+
+</details>
+
+---
+
 ## ✨ Özellikler
 
 ### 🎬 Video İndirici
@@ -48,33 +69,12 @@ Evrensel video, torrent ve dosya indirme uygulaması. Desktop (Windows) + Androi
 
 ---
 
-## 🖥 Ekran Görüntüleri
-
-```
-┌────────┬─────────────────────────────────────────┐
-│ ⬇ Pro  │  🎬 Video  🧲 Torrent  🎮 Oyun         │
-│  Down  ├─────────────────────────────────────────┤
-│  loader│                                         │
-│        │  [URL yapıştır...]          [🔍 Bilgi Al]│
-│ 🎬 Video│                                        │
-│ 🧲 Torr│  ████████████░░░░  45.2%                │
-│ 🎮 Oyun│  2.3 MB/s • 12dk 34sn • 1.5/3.4 GB     │
-│ 📥 Aktif│                    [⏸ Duraklat] [✕]    │
-│ ☁ Dosya│                                         │
-│ 📋 Log │                                         │
-│ ⚙ Ayar │                                         │
-├────────┴─────────────────────────────────────────┤
-│ 2 aktif | ⬇ 4.2 MB/s | 💾 124 GB boş           │
-└──────────────────────────────────────────────────┘
-```
-
----
-
 ## 🛠 Kurulum
 
 ### Gereksinimler
 - Python 3.12+
 - Windows 10/11
+- Node.js (YouTube JS challenge için)
 - [libtorrent](https://github.com/arvidn/libtorrent/releases) (torrent için)
 - [megatools](https://xff.cz/megatools/) (Mega.nz için)
 
@@ -88,8 +88,10 @@ cd pro-downloader
 # Bağımlılıkları kur
 pip install -r requirements.txt
 
-# libtorrent kur (Windows)
-pip install libtorrent-2.1.0-cp312-cp312-win_amd64.whl
+# libtorrent kur (Windows - manuel kurulum gerekli)
+# https://github.com/arvidn/libtorrent/releases adresinden
+# libtorrent-2.x.x-cp312-cp312-win_amd64.whl indir
+pip install libtorrent-2.x.x-cp312-cp312-win_amd64.whl
 
 # Uygulamayı başlat
 python -m desktop.main
@@ -156,19 +158,12 @@ pro-downloader/
 │       ├── log_window.py       # Log penceresi
 │       ├── download_item.py    # İndirme kartı
 │       └── pages/              # Sayfa modülleri
-│           ├── video_page.py
-│           ├── torrent_page.py
-│           ├── game_page.py
-│           ├── active_page.py
-│           ├── hosting_page.py
-│           └── settings_page.py
 ├── backend/                    # FastAPI backend (VPS)
 │   ├── main.py
 │   ├── api/
 │   ├── tasks/
 │   └── Dockerfile
 ├── android/                    # Android uygulaması
-│   └── app/src/main/
 ├── docker-compose.yml
 └── requirements.txt
 ```
@@ -180,7 +175,7 @@ pro-downloader/
 | Bileşen | Teknoloji |
 |---------|-----------|
 | Desktop UI | CustomTkinter (Python) |
-| Video İndirme | yt-dlp |
+| Video İndirme | yt-dlp + Node.js |
 | Torrent | libtorrent + Jackett |
 | Altyazı | Subdl.com + OpenSubtitles |
 | Mega.nz | megatools CLI |
